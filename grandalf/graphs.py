@@ -421,6 +421,96 @@ class  graph_core(object):
         setrecursionlimit(limit)
         return scs
 
+    def postorder(self):
+        stack = []
+        start = self.roots()
+        if len(start) == 0: return stack
+        if len(start) != 1:
+            raise ValueError('Reverse post order tree must have a single root: %s' % (', '.join('%s' % v.data for v in start)))
+        start = start[0]
+
+        def _visit(v, stack=[], visited=set()):
+            for e in v.e_out():
+                v1 = e.v[1]
+                if v1 in visited: continue
+                visited.add(v1)
+                _visit(v1, stack, visited)
+            stack.append(v)
+            return stack
+
+        return _visit(start)
+
+    def dominators(self):
+        from collections import defaultdict
+        """
+        http://www.hipersoft.rice.edu/grads/publications/dom14.pdf
+        https://networkx.github.io/documentation/development/_modules/networkx/algorithms/dominance.html
+        """
+        v_start = self.roots()
+        v_end   = self.leaves()
+
+        # as a graph may have multiple entry/exit poitns, we create two "fake" vertex's that will
+        #  act as a start point/sink.
+
+        entry = Vertex('entry')
+        exit  = Vertex('exit')
+
+        # create a copy
+        g = self
+
+        for v in v_start: g.add_edge(Edge(entry, v))
+        for v in v_end  : g.add_edge(Edge(v, exit))
+
+        po = g.postorder()
+        dfn = {u: i for i, u in enumerate(po)}
+
+        doms = defaultdict(lambda: None)
+        doms[entry] = entry
+
+        def _intersect(x, y):
+            while x != y:
+                while dfn[x] < dfn[y]:
+                    x = doms[x]
+                while dfn[y] < dfn[x]:
+                    y = doms[y]
+
+            return x
+
+        rpo = list(reversed(po))
+
+        order = rpo[1:]
+
+        changed = True
+        while changed:
+            changed = False
+            for b in order:
+                preds = set(map(lambda e: e.v[0], b.e_in()))
+                processed = set(doms.keys())
+
+                proc_pred = preds & processed
+
+                new_idom = proc_pred.pop()
+
+                for p in proc_pred:
+                    if p in doms:
+                        new_idom = _intersect(p, new_idom)
+
+                if doms[b] != new_idom:
+                    doms[b] = new_idom
+                    changed = True
+
+        # Walk the immediate dominators to get a set
+        res = set()
+        x = exit
+        while x != entry:
+            x = doms[x]
+            res.add(x)
+
+        res.remove(entry)
+
+
+        return res
+
     def partition(self):
         V = self.sV.copy()
         R = self.roots()
